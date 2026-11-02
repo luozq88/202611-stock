@@ -13,6 +13,11 @@ class ChanConfig:
     日线一笔向上离开中枢 -> 回抽不碰中枢上沿 ZG -> 三买候选。
     """
 
+    # 月线过滤
+    require_monthly_bull: bool = True
+    monthly_ma_min_months: int = 20
+    monthly_include_current: bool = True
+
     # 结构
     min_stroke_gap: int = 4          # 一笔至少间隔的合并K线数（新笔标准）
     min_pivot_width_pct: float = 0.02  # 中枢最小宽度

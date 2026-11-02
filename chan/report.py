@@ -54,6 +54,9 @@ def write_markdown(
     display["signal_mode"] = display["signal_mode"].map(
         lambda x: {"stroke": "笔结构", "bar": "进行中"}.get(x, x)
     )
+    display["monthly_bull"] = display["monthly_bull"].map(
+        lambda x: "-" if pd.isna(x) else ("是" if bool(x) else "否")
+    )
     for col in (
         "close",
         "pivot_zg",
@@ -80,6 +83,7 @@ def write_markdown(
         ("strength_ratio", "突破力度"),
         ("pullback_status", "回抽状态"),
         ("signal_mode", "信号类型"),
+        ("monthly_bull", "月线多头"),
         ("pullback_low", "回抽低点"),
         ("pullback_bars", "回抽K线"),
         ("pullback_low_vs_zg_pct", "距ZG"),
@@ -108,6 +112,7 @@ def write_markdown(
             "- `pullback_above_zg`：日线回抽低点仍在 ZG 上方，等待次级别确认。",
             "- `daily_pullback`：日线已走出完整回抽笔且不碰 ZG。",
             "- `second_launch`：回抽后已出现向上笔，确定性更高但位置更高。",
+            "- 月线多头：月线 MA5 > MA10 > MA20（默认含当月未完成K线）。",
             "- 评分只是排序参考，不构成投资建议。",
         ]
     )

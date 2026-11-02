@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", default=os.getenv("TUSHARE_TOKEN"), help="Tushare token")
     parser.add_argument("--start", help="开始日期 YYYYMMDD")
     parser.add_argument("--end", help="结束日期 YYYYMMDD，默认最近交易日")
-    parser.add_argument("--lookback", type=int, default=500, help="回看自然日数")
+    parser.add_argument("--lookback", type=int, default=900, help="回看自然日数（月线过滤建议 >= 760）")
     parser.add_argument("--codes", help="股票代码文件（csv）或逗号分隔代码")
     parser.add_argument("--limit", type=int, default=0, help="只处理前 N 只，0 表示全部")
     parser.add_argument("--sample", type=int, default=0, help="从全市场随机抽样 N 只，0 表示不抽样")
@@ -137,6 +137,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-top-divergence",
         action="store_true",
         help="允许突破段出现顶背驰（默认剔除）",
+    )
+    parser.add_argument(
+        "--no-monthly-filter",
+        action="store_true",
+        help="关闭月线 MA5>MA10>MA20 多头排列过滤",
+    )
+    parser.add_argument(
+        "--monthly-ma-min-months",
+        type=int,
+        default=20,
+        help="月线多头排列所需最少月数",
+    )
+    parser.add_argument(
+        "--monthly-exclude-current",
+        action="store_true",
+        help="月线MA不含当月未完成K线",
     )
     parser.add_argument(
         "--min-stage",
@@ -195,6 +211,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         start_date = (end_dt - timedelta(days=args.lookback)).strftime("%Y%m%d")
     stale_before = (end_dt - timedelta(days=15)).strftime("%Y%m%d")
 
+    if not args.no_monthly_filter:
+        monthly_min_start = (end_dt - timedelta(days=760)).strftime("%Y%m%d")
+        if start_date > monthly_min_start:
+            logger.info(
+                "为计算月线 MA20，回看起点自动扩展到 %s", monthly_min_start
+            )
+            start_date = monthly_min_start
+
     logger.info("筛选区间：%s ~ %s", start_date, end_date)
 
     market_ok = check_market(data, start_date, end_date) if args.market_filter else None
@@ -221,6 +245,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger.info("待处理股票：%s 只", total)
 
     cfg = ChanConfig(
+        require_monthly_bull=not args.no_monthly_filter,
+        monthly_ma_min_months=args.monthly_ma_min_months,
+        monthly_include_current=not args.monthly_exclude_current,
         breakout_min_pct=args.breakout_pct,
         min_strength_ratio=args.min_strength,
         max_days_since_breakout=args.max_days,

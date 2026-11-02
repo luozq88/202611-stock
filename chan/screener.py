@@ -10,6 +10,7 @@ import pandas as pd
 
 from .config import ChanConfig
 from .macd import bottom_divergence, macd_series, top_divergence
+from .monthly import MonthlyTrend, monthly_trend
 from .structure import (
     Bar,
     Pivot,
@@ -52,6 +53,10 @@ class ScreenResult:
     stop_pullback: Optional[float]
     score: float
     signal_mode: str = "stroke"
+    monthly_bull: Optional[bool] = None
+    monthly_ma5: Optional[float] = None
+    monthly_ma10: Optional[float] = None
+    monthly_ma20: Optional[float] = None
     market_ok: Optional[bool] = None
     sub_ok: Optional[bool] = None
     sub_note: str = ""
@@ -137,6 +142,7 @@ def _make_result(
     chase_pct: float,
     cfg: ChanConfig,
     market_ok: Optional[bool],
+    monthly: Optional[MonthlyTrend] = None,
     signal_mode: str = "stroke",
 ) -> ScreenResult:
     breakout_pct = breakout_high / pivot.zg - 1.0
@@ -190,6 +196,10 @@ def _make_result(
         stop_pullback=stop_pullback,
         score=score,
         signal_mode=signal_mode,
+        monthly_bull=monthly.ok if monthly else None,
+        monthly_ma5=monthly.ma5 if monthly else None,
+        monthly_ma10=monthly.ma10 if monthly else None,
+        monthly_ma20=monthly.ma20 if monthly else None,
         market_ok=market_ok,
     )
 
@@ -207,6 +217,7 @@ def _bar_level_candidate(
     hist: pd.Series,
     last_idx: int,
     market_ok: Optional[bool],
+    monthly: Optional[MonthlyTrend],
 ) -> Optional[ScreenResult]:
     """处理“突破仍在进行、日线笔尚未走完”的情况。
 
@@ -337,6 +348,7 @@ def _bar_level_candidate(
         chase_pct=bars[-1].close / breakout_high - 1.0,
         cfg=cfg,
         market_ok=market_ok,
+        monthly=monthly,
         signal_mode="bar",
     )
 
@@ -371,6 +383,14 @@ def analyze_stock(
         avg_amount = float(np.mean([b.amount for b in recent]))
         if avg_amount < cfg.min_avg_amount:
             return None
+
+    monthly = monthly_trend(
+        bars,
+        min_months=cfg.monthly_ma_min_months,
+        include_current=cfg.monthly_include_current,
+    )
+    if cfg.require_monthly_bull and not monthly.ok:
+        return None
 
     merged = merge_bars(bars)
     if len(merged) < 10:
@@ -523,6 +543,7 @@ def analyze_stock(
                 chase_pct=chase_pct,
                 cfg=cfg,
                 market_ok=market_ok,
+                monthly=monthly,
             )
         )
 
@@ -545,6 +566,7 @@ def analyze_stock(
                 hist=hist,
                 last_idx=last_idx,
                 market_ok=market_ok,
+                monthly=monthly,
             )
             if result is not None:
                 candidates.append(result)
