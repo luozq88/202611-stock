@@ -68,6 +68,9 @@ python run_screener.py --codes my_pool.csv
 
 | 参数 | 说明 |
 | --- | --- |
+| `--limit` | 只处理前 N 只，适合快速验证 |
+| `--sample` | 从全市场随机抽样 N 只，避免只扫到某个板块 |
+| `--seed` | 随机抽样种子，默认 42 |
 | `--breakout-pct` | 突破 ZG 的最小幅度，默认 0.01 |
 | `--min-strength` | 离开段/前一下跌段力度比，默认 0.5 |
 | `--max-days` | 突破高点距今天数上限，默认 30 |

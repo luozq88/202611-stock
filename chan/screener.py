@@ -293,6 +293,13 @@ def _bar_level_candidate(
     else:
         return None
 
+    # 突破后（含二次启动之后）任何日线低点都不能跌回 ZG，否则三买失效
+    if any(
+        b.low <= zg * (1.0 + cfg.pullback_tolerance)
+        for b in bars[breakout_idx + 1 :]
+    ):
+        return None
+
     prev_down = _find_prev(strokes, pivot.end_stroke + 1, "down")
     if prev_down is None or prev_down.amplitude <= 0:
         return None

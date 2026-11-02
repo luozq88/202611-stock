@@ -116,6 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lookback", type=int, default=500, help="回看自然日数")
     parser.add_argument("--codes", help="股票代码文件（csv）或逗号分隔代码")
     parser.add_argument("--limit", type=int, default=0, help="只处理前 N 只，0 表示全部")
+    parser.add_argument("--sample", type=int, default=0, help="从全市场随机抽样 N 只，0 表示不抽样")
+    parser.add_argument("--seed", type=int, default=42, help="随机抽样种子")
     parser.add_argument("--cache-dir", default="data/cache", help="本地缓存目录")
     parser.add_argument("--output", default="output", help="结果目录")
     parser.add_argument("--refresh", action="store_true", help="强制刷新本地缓存")
@@ -209,6 +211,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     except Exception as exc:  # noqa: BLE001
         logger.error("获取股票列表失败：%s", exc)
         return 2
+    if args.sample > 0:
+        n = min(args.sample, len(universe))
+        universe = universe.sample(n=n, random_state=args.seed).reset_index(drop=True)
+        logger.info("随机抽样：%s 只（seed=%s）", n, args.seed)
     if args.limit > 0:
         universe = universe.head(args.limit)
     total = len(universe)
