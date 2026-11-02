@@ -12,6 +12,7 @@ from .config import ChanConfig
 from .macd import bottom_divergence, macd_series, top_divergence
 from .structure import (
     Bar,
+    Pivot,
     Stroke,
     build_strokes,
     find_fractals,
@@ -50,6 +51,7 @@ class ScreenResult:
     stop_zg: float
     stop_pullback: Optional[float]
     score: float
+    signal_mode: str = "stroke"
     market_ok: Optional[bool] = None
     sub_ok: Optional[bool] = None
     sub_note: str = ""
@@ -105,6 +107,232 @@ def _score(
         score -= 10.0
 
     return max(0.0, min(100.0, score))
+
+
+def _volume_ratio(bars: Sequence[Bar], breakout_idx: int) -> float:
+    window = bars[max(0, breakout_idx - 20) : breakout_idx]
+    avg_vol = float(np.mean([b.volume for b in window])) if window else 0.0
+    if avg_vol <= 0 or breakout_idx < 0 or breakout_idx >= len(bars):
+        return 0.0
+    return bars[breakout_idx].volume / avg_vol
+
+
+def _make_result(
+    *,
+    ts_code: str,
+    name: str,
+    industry: str,
+    close: float,
+    pivot: Pivot,
+    breakout_date: str,
+    breakout_high: float,
+    strength_ratio: float,
+    top_div: bool,
+    pullback_status: str,
+    pullback_low: Optional[float],
+    pullback_bars: int,
+    bottom_div: bool,
+    days_since_breakout: int,
+    volume_ratio: float,
+    chase_pct: float,
+    cfg: ChanConfig,
+    market_ok: Optional[bool],
+    signal_mode: str = "stroke",
+) -> ScreenResult:
+    breakout_pct = breakout_high / pivot.zg - 1.0
+    pullback_low_vs_zg_pct = (
+        pullback_low / pivot.zg - 1.0 if pullback_low is not None else None
+    )
+    stop_zg = pivot.zg * (1.0 - cfg.stop_buffer_pct)
+    stop_pullback = (
+        pullback_low * (1.0 - cfg.stop_buffer_pct * 0.5)
+        if pullback_low is not None
+        else None
+    )
+    score = _score(
+        strength_ratio=strength_ratio,
+        pullback_status=pullback_status,
+        pullback_low=pullback_low,
+        zg=pivot.zg,
+        bottom_div=bottom_div,
+        days_since_breakout=days_since_breakout,
+        volume_ratio=volume_ratio,
+        chase_pct=chase_pct,
+        top_div=top_div,
+    )
+    return ScreenResult(
+        ts_code=ts_code,
+        name=name,
+        industry=industry,
+        close=close,
+        pivot_zg=pivot.zg,
+        pivot_zd=pivot.zd,
+        pivot_gg=pivot.gg,
+        pivot_dd=pivot.dd,
+        pivot_start=pivot.start_date,
+        pivot_end=pivot.end_date,
+        pivot_bars=pivot.bar_count,
+        pivot_width_pct=pivot.width_pct,
+        breakout_date=breakout_date,
+        breakout_high=breakout_high,
+        breakout_pct=breakout_pct,
+        strength_ratio=strength_ratio,
+        top_divergence=top_div,
+        pullback_status=pullback_status,
+        pullback_low=pullback_low,
+        pullback_bars=pullback_bars,
+        pullback_low_vs_zg_pct=pullback_low_vs_zg_pct,
+        bottom_divergence=bottom_div,
+        days_since_breakout=days_since_breakout,
+        volume_ratio=volume_ratio,
+        chase_pct=chase_pct,
+        stop_zg=stop_zg,
+        stop_pullback=stop_pullback,
+        score=score,
+        signal_mode=signal_mode,
+        market_ok=market_ok,
+    )
+
+
+def _bar_level_candidate(
+    *,
+    ts_code: str,
+    name: str,
+    industry: str,
+    bars: Sequence[Bar],
+    pivot: Pivot,
+    strokes: Sequence[Stroke],
+    cfg: ChanConfig,
+    dif: pd.Series,
+    hist: pd.Series,
+    last_idx: int,
+    market_ok: Optional[bool],
+) -> Optional[ScreenResult]:
+    """处理“突破仍在进行、日线笔尚未走完”的情况。
+
+    只用已完成的笔会漏掉正在突破的股票（例如刚突破 2-5 天）。这里在中枢
+    结束后按原始K线扫描：第一根突破 ZG 的K线作为突破点，之后先出现
+    有效回抽（>= min_pullback_bars 且低点不碰 ZG），再创新高，即为
+    二次启动；回抽后尚未创新高，则为 pullback_above_zg。
+    """
+    if pivot.leave_stroke is not None:
+        leave = strokes[pivot.leave_stroke]
+        if leave.direction == "up" and pivot.leave_stroke + 1 < len(strokes):
+            # 笔结构已经完整处理过（离开段后面还有一笔），不在回退逻辑中重复
+            return None
+
+    zg = pivot.zg
+    scan_from = max(min(pivot.end_idx, last_idx), 0)
+    breakout_idx = 0
+    breakout_high = 0.0
+    breakout_date = ""
+    pullback_low: Optional[float] = None
+    pullback_bars = 0
+
+    while scan_from <= last_idx:
+        breakout_idx = -1
+        for i in range(scan_from, len(bars)):
+            if bars[i].high > zg * (1.0 + cfg.breakout_min_pct):
+                breakout_idx = i
+                break
+        if breakout_idx < 0:
+            return None
+
+        breakout_high = bars[breakout_idx].high
+        breakout_date = bars[breakout_idx].date
+        pull_low: Optional[float] = None
+        pull_bars = 0
+        first_pull_low: Optional[float] = None
+        first_pull_bars = 0
+        second_launch = False
+        failed_at: Optional[int] = None
+
+        for j in range(breakout_idx + 1, len(bars)):
+            if bars[j].low <= zg * (1.0 + cfg.pullback_tolerance):
+                failed_at = j
+                break
+
+            if pull_low is None or bars[j].low < pull_low:
+                pull_low = bars[j].low
+            pull_bars = j - breakout_idx
+
+            if bars[j].high > breakout_high:
+                if pull_bars >= cfg.min_daily_pullback_bars:
+                    first_pull_low = pull_low
+                    first_pull_bars = pull_bars
+                    second_launch = True
+                    break
+                # 没有形成有效回抽，继续视为同一突破段
+                breakout_high = bars[j].high
+                breakout_date = bars[j].date
+                breakout_idx = j
+                pull_low = None
+                pull_bars = 0
+
+        if failed_at is not None:
+            # 这次突破失败（回抽碰到 ZG），从中枢延伸后重新寻找下一次突破
+            scan_from = failed_at + 1
+            continue
+
+        if last_idx - breakout_idx > cfg.max_days_since_breakout:
+            return None
+
+        if second_launch:
+            status = "second_launch"
+            pullback_low = first_pull_low
+            pullback_bars = first_pull_bars
+        elif pull_low is not None and pull_bars >= cfg.min_daily_pullback_bars:
+            status = "pullback_above_zg"
+            pullback_low = pull_low
+            pullback_bars = pull_bars
+        else:
+            status = "breakout_only"
+            pullback_low = pull_low
+            pullback_bars = pull_bars
+        break
+    else:
+        return None
+
+    prev_down = _find_prev(strokes, pivot.end_stroke + 1, "down")
+    if prev_down is None or prev_down.amplitude <= 0:
+        return None
+    leave_amp = breakout_high - prev_down.low
+    if leave_amp <= 0:
+        return None
+    strength_ratio = leave_amp / prev_down.amplitude
+    if strength_ratio < cfg.min_strength_ratio:
+        return None
+
+    # 突破仍在进行时，顶背驰只作为参考，不直接否决
+    top_div = False
+    if pivot.end_stroke < len(strokes) and strokes[pivot.end_stroke].direction == "up":
+        cur_up = strokes[pivot.end_stroke]
+        prev_up = _find_prev(strokes, pivot.end_stroke, "up")
+        if prev_up is not None:
+            top_div = top_divergence(prev_up, cur_up, dif, hist)
+
+    return _make_result(
+        ts_code=ts_code,
+        name=name,
+        industry=industry,
+        close=bars[-1].close,
+        pivot=pivot,
+        breakout_date=breakout_date,
+        breakout_high=breakout_high,
+        strength_ratio=strength_ratio,
+        top_div=top_div,
+        pullback_status=status,
+        pullback_low=pullback_low,
+        pullback_bars=pullback_bars,
+        bottom_div=False,
+        days_since_breakout=last_idx - breakout_idx,
+        volume_ratio=_volume_ratio(bars, breakout_idx),
+        chase_pct=bars[-1].close / breakout_high - 1.0,
+        cfg=cfg,
+        market_ok=market_ok,
+        signal_mode="bar",
+    )
+
 
 
 def analyze_stock(
@@ -248,7 +476,7 @@ def analyze_stock(
                 pullback_low = low_since
                 pullback_bars = len(post)
 
-        if status == "pullback_above_zg" and pullback_bars < cfg.min_pullback_bars:
+        if status == "pullback_above_zg" and pullback_bars < cfg.min_daily_pullback_bars:
             # 回抽K线太少，先不当作有效回抽
             status = "breakout_only"
 
@@ -265,68 +493,54 @@ def analyze_stock(
             continue
 
         # 突破量能
-        vol_window = bars[max(0, leave.end_idx - 20) : leave.end_idx]
-        avg_vol = float(np.mean([b.volume for b in vol_window])) if vol_window else 0.0
-        breakout_vol = bars[leave.end_idx].volume
-        volume_ratio = breakout_vol / avg_vol if avg_vol > 0 else 0.0
-
-        breakout_pct = leave.high / pivot.zg - 1.0
-        pullback_low_vs_zg_pct = (
-            pullback_low / pivot.zg - 1.0 if pullback_low is not None else None
-        )
+        volume_ratio = _volume_ratio(bars, leave.end_idx)
         chase_pct = last_bar.close / leave.high - 1.0
-        stop_zg = pivot.zg * (1.0 - cfg.stop_buffer_pct)
-        stop_pullback = (
-            pullback_low * (1.0 - cfg.stop_buffer_pct * 0.5)
-            if pullback_low is not None
-            else None
-        )
-
-        score = _score(
-            strength_ratio=strength_ratio,
-            pullback_status=status,
-            pullback_low=pullback_low,
-            zg=pivot.zg,
-            bottom_div=bottom_div,
-            days_since_breakout=last_idx - leave.end_idx,
-            volume_ratio=volume_ratio,
-            chase_pct=chase_pct,
-            top_div=top_div,
-        )
 
         candidates.append(
-            ScreenResult(
+            _make_result(
                 ts_code=ts_code,
                 name=name,
                 industry=industry,
                 close=last_bar.close,
-                pivot_zg=pivot.zg,
-                pivot_zd=pivot.zd,
-                pivot_gg=pivot.gg,
-                pivot_dd=pivot.dd,
-                pivot_start=pivot.start_date,
-                pivot_end=pivot.end_date,
-                pivot_bars=pivot.bar_count,
-                pivot_width_pct=pivot.width_pct,
+                pivot=pivot,
                 breakout_date=leave.end.date,
                 breakout_high=leave.high,
-                breakout_pct=breakout_pct,
                 strength_ratio=strength_ratio,
-                top_divergence=top_div,
+                top_div=top_div,
                 pullback_status=status,
                 pullback_low=pullback_low,
                 pullback_bars=pullback_bars,
-                pullback_low_vs_zg_pct=pullback_low_vs_zg_pct,
-                bottom_divergence=bottom_div,
+                bottom_div=bottom_div,
                 days_since_breakout=last_idx - leave.end_idx,
                 volume_ratio=volume_ratio,
                 chase_pct=chase_pct,
-                stop_zg=stop_zg,
-                stop_pullback=stop_pullback,
-                score=score,
+                cfg=cfg,
                 market_ok=market_ok,
             )
         )
+
+    # 回退：日线突破仍在进行、笔尚未走完的情况
+    has_confirmed = any(
+        item.pullback_status in ("daily_pullback", "second_launch")
+        for item in candidates
+    )
+    if not has_confirmed:
+        for pivot in reversed(pivots):
+            result = _bar_level_candidate(
+                ts_code=ts_code,
+                name=name,
+                industry=industry,
+                bars=bars,
+                pivot=pivot,
+                strokes=strokes,
+                cfg=cfg,
+                dif=dif,
+                hist=hist,
+                last_idx=last_idx,
+                market_ok=market_ok,
+            )
+            if result is not None:
+                candidates.append(result)
 
     if not candidates:
         return None

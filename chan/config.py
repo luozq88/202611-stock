@@ -26,7 +26,8 @@ class ChanConfig:
 
     # 回抽
     pullback_tolerance: float = 0.0  # 回抽低点相对 ZG 的容差，0 表示严格不碰
-    min_pullback_bars: int = 3       # 回抽至少持续K线数
+    min_daily_pullback_bars: int = 2  # 日线回抽最少K线数（强势股常常只有1-2根）
+    min_pullback_bars: int = 3       # 30分钟回抽最少K线数
 
     # 背驰
     reject_top_divergence: bool = True

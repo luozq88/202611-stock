@@ -52,10 +52,10 @@ python run_screener.py --start 20250101 --end 20251101 --confirm-30m
 python run_screener.py --codes 300082.SZ,600519.SH --confirm-30m
 ```
 
-围绕讨论中的奥克股份案例回看：
+围绕讨论中的奥克股份案例回看（至少需要 120 根日线，起始日要留足回看）：
 
 ```bash
-python run_screener.py --codes 300082.SZ --start 20250601 --end 20251113 --max-days 90
+python run_screener.py --codes 300082.SZ --start 20241101 --end 20251113 --max-days 90
 ```
 
 或传入 CSV（包含 `ts_code` 列）：
@@ -71,7 +71,8 @@ python run_screener.py --codes my_pool.csv
 | `--breakout-pct` | 突破 ZG 的最小幅度，默认 0.01 |
 | `--min-strength` | 离开段/前一下跌段力度比，默认 0.5 |
 | `--max-days` | 突破高点距今天数上限，默认 30 |
-| `--min-pullback-bars` | 回抽最少K线数，默认 3 |
+| `--min-daily-pullback-bars` | 日线回抽最少K线数，默认 2 |
+| `--min-pullback-bars` | 30分钟回抽最少K线数，默认 3 |
 | `--min-stage` | 最低回抽阶段：`breakout_only` / `pullback_above_zg` / `daily_pullback` / `second_launch` |
 | `--allow-top-divergence` | 允许突破段出现顶背驰（默认剔除） |
 | `--confirm-30m` | 用 30 分钟线确认回抽 |
@@ -92,7 +93,9 @@ python run_screener.py --codes my_pool.csv
 - `breakout_date` / `breakout_pct`：突破日与突破幅度；
 - `strength_ratio`：突破力度比；
 - `pullback_status`：回抽阶段；
-- `pullback_low`：回抽低点；
+- `signal_mode`：`stroke` 表示由完整笔结构识别，`bar` 表示突破仍在进行、用原始K线回退识别；
+- `pullback_low` / `pullback_bars`：回抽低点与回抽K线数；
+- `chase_pct`：现价相对突破高点的涨幅，过大说明位置偏高；
 - `stop_zg`：跌破 ZG 下方 1% 的硬止损；
 - `sub_ok` / `sub_note`：30 分钟确认结果；
 - `score`：排序评分。
@@ -101,6 +104,7 @@ python run_screener.py --codes my_pool.csv
 
 - 这是对缠论的工程化简化，不追求严格的递归级别划分；核心是稳定识别“中枢突破 + 回抽不碰 ZG”的结构。
 - “隐性上沿/隐性支撑”（扩展中枢形成过程中第一次回落止跌位）暂未单独建模，目前以 ZG 作为核心防守位。
-- Tushare 的分钟行情需要积分权限；没有权限时 `--confirm-30m` 会标注失败，但不影响日线筛选。
+- Tushare 的分钟行情需要积分权限，且部分账号频率限制很严（例如 1 次/小时）；`--confirm-30m` 被限频时会在 `sub_note` 标注失败，但不影响日线筛选。
+- 如果日线笔还没走完（刚突破几天的股票），脚本会用原始K线回退识别进行中的突破，`signal_mode=bar`；这类信号需要结合分钟级回抽确认使用。
 - 前复权数据在除权除息后会变化，脚本默认按天刷新缓存；批量扫描时可适当增大 `--sleep` 避免触发限频。
 - 选股结果只是结构筛选，不构成投资建议。实盘还需结合大盘、板块、基本面和仓位管理。

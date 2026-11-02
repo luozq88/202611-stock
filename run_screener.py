@@ -126,7 +126,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-days", type=int, default=30, help="突破高点距今天数上限")
     parser.add_argument("--min-pivot-width", type=float, default=0.02, help="中枢最小宽度")
     parser.add_argument("--min-pivot-bars", type=int, default=8, help="中枢最少K线数")
-    parser.add_argument("--min-pullback-bars", type=int, default=3, help="回抽最少K线数")
+    parser.add_argument("--min-daily-pullback-bars", type=int, default=2, help="日线回抽最少K线数")
+    parser.add_argument("--min-pullback-bars", type=int, default=3, help="30分钟回抽最少K线数")
     parser.add_argument("--min-price", type=float, default=2.0, help="最低股价")
     parser.add_argument("--min-amount", type=float, default=0.0, help="近20日平均成交额（千元）")
     parser.add_argument("--ma-filter", action="store_true", help="要求收盘价 > MA20 > MA60")
@@ -219,6 +220,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         max_days_since_breakout=args.max_days,
         min_pivot_width_pct=args.min_pivot_width,
         min_pivot_bars=args.min_pivot_bars,
+        min_daily_pullback_bars=args.min_daily_pullback_bars,
         min_pullback_bars=args.min_pullback_bars,
         min_price=args.min_price,
         min_avg_amount=args.min_amount,

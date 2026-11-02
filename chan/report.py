@@ -51,6 +51,9 @@ def write_markdown(
     display["sub_ok"] = display["sub_ok"].map(
         lambda x: "未确认" if pd.isna(x) else ("是" if x else "否")
     )
+    display["signal_mode"] = display["signal_mode"].map(
+        lambda x: {"stroke": "笔结构", "bar": "进行中"}.get(x, x)
+    )
     for col in (
         "close",
         "pivot_zg",
@@ -76,6 +79,7 @@ def write_markdown(
         ("breakout_pct", "突破幅度"),
         ("strength_ratio", "突破力度"),
         ("pullback_status", "回抽状态"),
+        ("signal_mode", "信号类型"),
         ("pullback_low", "回抽低点"),
         ("pullback_bars", "回抽K线"),
         ("pullback_low_vs_zg_pct", "距ZG"),
