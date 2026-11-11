@@ -226,8 +226,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     counts = df["pool"].value_counts().to_dict() if not df.empty else {}
     logger.info(
-        "漏斗完成：三买信号 %s，右侧观察 %s，左侧观察 %s",
+        "漏斗完成：确认三买 %s，待回抽 %s，右侧观察 %s，左侧观察 %s",
         counts.get("signal", 0),
+        counts.get("breakout_watch", 0),
         counts.get("buy_watch", 0),
         counts.get("left_watch", 0),
     )
@@ -254,7 +255,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         ]
     ].copy()
     show["pool"] = show["pool"].map(
-        {"signal": "三买", "buy_watch": "右侧", "left_watch": "左侧"}
+        {
+            "signal": "三买",
+            "breakout_watch": "待回抽",
+            "buy_watch": "右侧",
+            "left_watch": "左侧",
+        }
     )
     for col in ("close", "monthly_ma5", "monthly_ma20", "pivot_zg"):
         show[col] = show[col].map(lambda x: "-" if pd.isna(x) else f"{x:.2f}")

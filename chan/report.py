@@ -137,7 +137,8 @@ def write_funnel_markdown(
         return
 
     pool_names = {
-        "signal": "三买信号",
+        "signal": "确认三买",
+        "breakout_watch": "待回抽",
         "buy_watch": "右侧观察",
         "left_watch": "左侧观察",
     }
@@ -177,6 +178,18 @@ def write_funnel_markdown(
     display["sub_ok"] = display["sub_ok"].map(
         lambda x: "未确认" if pd.isna(x) else ("是" if bool(x) else "否")
     )
+    display["top_divergence"] = display["top_divergence"].map(
+        lambda x: "-" if pd.isna(x) else ("是" if bool(x) else "否")
+    )
+
+    def _volume_desc(row) -> str:
+        tag = row.get("volume_tag") or ""
+        ratio = row.get("volume_ratio")
+        if not tag or pd.isna(ratio):
+            return "-"
+        return f"{tag} {ratio:.2f}"
+
+    display["volume_desc"] = display.apply(_volume_desc, axis=1)
 
     columns = [
         ("ts_code", "代码"),
@@ -197,6 +210,8 @@ def write_funnel_markdown(
         ("turnover_median", "换手中位"),
         ("pivot_zg", "中枢ZG"),
         ("pullback_status", "回抽状态"),
+        ("volume_desc", "量能"),
+        ("top_divergence", "顶背驰"),
         ("score", "评分"),
         ("sub_ok", "次级别"),
     ]
@@ -218,9 +233,12 @@ def write_funnel_markdown(
             "",
             "## 分层说明",
             "",
-            "- 三买信号：日线中枢向上突破、回抽不碰 ZG，可直接进入次级别确认。",
+            "- 确认三买：日线中枢向上突破、回抽不碰 ZG，已满足三买的必要条件。",
+            "- 待回抽：突破已发生但尚未回抽，不构成三买；必须等回抽不碰 ZG 才可升级。",
             "- 右侧观察：已有日线中枢且收盘价在 ZG 的 95% 以上，但尚未形成三买触发。",
             "- 左侧观察：中枢未明确，或价格仍在中枢中下部/下方，仅作资金异动的跟踪池。",
+            "- 量能：突破日成交量 / 前 5 日均量，≥1.2 放量、≥0.8 平量、其余缩量。",
+            "- 顶背驰：离开段出现的顶背驰提示，是风险标签，不直接否决信号。",
             "",
             "## 过滤条件",
             "",

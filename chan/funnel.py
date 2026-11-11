@@ -29,7 +29,7 @@ STAGE_ORDER = {
     "second_launch": 3,
 }
 
-POOL_ORDER = {"signal": 0, "buy_watch": 1, "left_watch": 2}
+POOL_ORDER = {"signal": 0, "breakout_watch": 1, "buy_watch": 2, "left_watch": 3}
 
 
 @dataclass(slots=True)
@@ -72,6 +72,9 @@ class FunnelRow:
     pivot_zd: Optional[float] = None
     pullback_status: str = ""
     breakout_date: str = ""
+    volume_ratio: Optional[float] = None
+    volume_tag: str = ""
+    top_divergence: Optional[bool] = None
     score: float = 0.0
 
     sub_ok: Optional[bool] = None
@@ -94,9 +97,22 @@ def _float_or_none(value) -> Optional[float]:
     return float(value)
 
 
+def _volume_tag(ratio: Optional[float]) -> str:
+    if ratio is None or pd.isna(ratio):
+        return ""
+    if ratio >= 1.2:
+        return "放量"
+    if ratio >= 0.8:
+        return "平量"
+    return "缩量"
+
+
 def _attach_signals(
     row: FunnelRow, result: ScreenResult, pool: str = "signal"
 ) -> FunnelRow:
+    # 突破首日尚未回抽，不满足三买的必要条件，单独归入“待回抽”
+    if result.pullback_status == "breakout_only":
+        pool = "breakout_watch"
     row.pool = pool
     row.close = result.close
     row.has_zs = True
@@ -104,6 +120,9 @@ def _attach_signals(
     row.pivot_zd = result.pivot_zd
     row.pullback_status = result.pullback_status
     row.breakout_date = result.breakout_date
+    row.volume_ratio = result.volume_ratio
+    row.volume_tag = _volume_tag(result.volume_ratio)
+    row.top_divergence = result.top_divergence
     row.score = result.score
     return row
 
@@ -201,6 +220,7 @@ def screen_funnel(
         "monthly_fail": 0,
         "obv_fail": 0,
         "signal": 0,
+        "breakout_watch": 0,
         "watch": 0,
     }
 
@@ -301,8 +321,12 @@ def screen_funnel(
                 cfg=signal_cfg,
             )
             if result is not None and STAGE_ORDER.get(result.pullback_status, 0) >= min_rank:
-                rows.append(_attach_signals(row, result, pool="signal"))
-                stats["signal"] += 1
+                attached = _attach_signals(row, result, pool="signal")
+                rows.append(attached)
+                if attached.pool == "breakout_watch":
+                    stats["breakout_watch"] += 1
+                else:
+                    stats["signal"] += 1
             else:
                 merged = merge_bars(bars)
                 fractals = find_fractals(merged)
