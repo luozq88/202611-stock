@@ -311,6 +311,10 @@ def _bar_level_candidate(
     ):
         return None
 
+    # 仅突破、尚未回抽时，若收盘价吞没突破日最低价，说明突破未站稳，暂不纳入
+    if status == "breakout_only" and bars[-1].close < bars[breakout_idx].low:
+        return None
+
     prev_down = _find_prev(strokes, pivot.end_stroke + 1, "down")
     if prev_down is None or prev_down.amplitude <= 0:
         return None
@@ -508,6 +512,10 @@ def analyze_stock(
         if status == "pullback_above_zg" and pullback_bars < cfg.min_daily_pullback_bars:
             # 回抽K线太少，先不当作有效回抽
             status = "breakout_only"
+
+        # 仅突破、尚未回抽时，若收盘价吞没突破日最低价，说明突破未站稳，暂不纳入
+        if status == "breakout_only" and last_bar.close < bars[leave.end_idx].low:
+            continue
 
         # 如果回抽结构出现过，再确认一次低点
         if pullback_low is not None and pullback_low <= pivot.zg * (
