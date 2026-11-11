@@ -388,6 +388,8 @@ def analyze_stock(
         bars,
         min_months=cfg.monthly_ma_min_months,
         include_current=cfg.monthly_include_current,
+        require_macd_zero=cfg.monthly_require_macd_zero,
+        min_months_for_macd=cfg.monthly_min_months_for_macd,
     )
     if cfg.require_monthly_bull and not monthly.ok:
         return None

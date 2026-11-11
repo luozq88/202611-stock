@@ -15,8 +15,38 @@ class ChanConfig:
 
     # 月线过滤
     require_monthly_bull: bool = True
-    monthly_ma_min_months: int = 20
+    monthly_ma_min_months: int = 24
     monthly_include_current: bool = True
+    monthly_require_macd_zero: bool = True   # 月线 DIF、DEA 均在零轴上方
+    monthly_min_months_for_macd: int = 36    # 月线 MACD 至少需要的月数
+
+    # 周线：非暴涨约束
+    require_not_surged: bool = True
+    max_weekly_deviation: float = 1.3  # 周收盘 / 周MA10 上限
+    min_weekly_bars: int = 12
+
+    # 资金流（moneyflow 口径，替代无权限的 moneyflow_dc）
+    require_fund_pass: bool = True
+    mf_recent_days: int = 10
+    mf_moderate_max: float = 5.0    # 温和净流入上限，单位 %
+    mf_spike_max: float = 12.0      # 单日净流入绝对值上限，单位 %
+    mf_continuity: float = 0.6      # 处于温和区间的天数占比
+
+    # 换手率
+    require_turnover_pass: bool = True
+    turnover_recent_days: int = 20
+    turnover_min: float = 2.0       # 换手中位数下限，单位 %
+    turnover_max: float = 8.0       # 换手中位数上限，单位 %
+    turnover_tail_min: float = 1.0  # 最近 5 日均换手下限，单位 %
+
+    # OBV / A-D 价横量升
+    require_obv_pass: bool = True
+    obv_lookback: int = 25
+    obv_price_flat_max: float = 0.08  # 区间涨幅低于 8% 视为横盘
+    obv_slope_min: float = 0.05       # 归一化斜率阈值
+
+    # 股票池
+    min_list_months: int = 60
 
     # 结构
     min_stroke_gap: int = 4          # 一笔至少间隔的合并K线数（新笔标准）

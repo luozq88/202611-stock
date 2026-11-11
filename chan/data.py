@@ -20,6 +20,33 @@ def _norm_date(value) -> str:
     return text[:8]
 
 
+def bars_from_frame(df: pd.DataFrame) -> list:
+    """把 Tushare 日线 DataFrame 转成内部 Bar 列表。"""
+    from .structure import Bar
+
+    bars = []
+    for record in df.to_dict("records"):
+        def _num(value) -> float:
+            try:
+                return 0.0 if pd.isna(value) else float(value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        bars.append(
+            Bar(
+                date=_norm_date(record["trade_date"]),
+                open=float(record["open"]),
+                high=float(record["high"]),
+                low=float(record["low"]),
+                close=float(record["close"]),
+                volume=_num(record.get("vol")),
+                amount=_num(record.get("amount")),
+                idx=len(bars),
+            )
+        )
+    return bars
+
+
 class TushareData:
     def __init__(
         self,
@@ -94,6 +121,62 @@ class TushareData:
         # 排除B股
         df = df[~df["ts_code"].str.match(r"^(200|900)")]
         return df.reset_index(drop=True)
+
+    def get_trade_dates(self, n: int, end_date: str) -> list[str]:
+        """取 end_date 之前最近的 n 个交易日（含 end_date）。"""
+        end_dt = datetime.strptime(end_date, "%Y%m%d")
+        start_dt = end_dt - timedelta(days=n * 2 + 40)
+        cal = self._request(
+            self.pro.trade_cal,
+            exchange="SSE",
+            is_open="1",
+            start_date=start_dt.strftime("%Y%m%d"),
+            end_date=end_date,
+        )
+        if cal is None or cal.empty:
+            return []
+        dates = sorted(cal["cal_date"].astype(str).tolist())
+        return dates[-n:]
+
+    def get_panel(
+        self,
+        api: str,
+        trade_date: str,
+        fields: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """拉取某个交易日的全市场截面数据，并按天缓存。
+
+        `daily` / `daily_basic` / `moneyflow` 都支持 trade_date 全市场查询，
+        比逐股拉取省一个数量级的请求次数。
+        """
+        trade_date = _norm_date(trade_date)
+        panel_dir = self.cache_dir / "panel" / api
+        path = panel_dir / f"{trade_date}.csv"
+        today = datetime.now().strftime("%Y%m%d")
+
+        # 当天数据可能还没收盘完整，不缓存，直接重取
+        if path.exists() and not self.refresh and trade_date < today:
+            try:
+                df = pd.read_csv(path, dtype={"ts_code": str, "trade_date": str})
+                if not df.empty:
+                    return df
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("截面缓存读取失败 %s：%s", path, exc)
+
+        func = getattr(self.pro, api)
+        kwargs = {"trade_date": trade_date}
+        if fields:
+            kwargs["fields"] = fields
+        df = self._request(func, **kwargs)
+        if df is None:
+            df = pd.DataFrame()
+        if not df.empty:
+            df = df.copy()
+            if "trade_date" in df.columns:
+                df["trade_date"] = df["trade_date"].astype(str)
+            panel_dir.mkdir(parents=True, exist_ok=True)
+            df.to_csv(path, index=False, encoding="utf-8-sig")
+        return df
 
     def _cache_path(self, ts_code: str) -> Path:
         return self.daily_dir / f"{ts_code}.csv"
@@ -286,3 +369,29 @@ class TushareData:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         return df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+
+
+def load_universe(data: TushareData, codes_arg: Optional[str]) -> pd.DataFrame:
+    """构建股票池：全市场，或 --codes 指定的 CSV/逗号分隔代码。"""
+    stock_list = data.get_stock_list()
+    if not codes_arg:
+        return stock_list
+
+    path = Path(codes_arg)
+    if path.exists():
+        codes_df = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
+        if "ts_code" in codes_df.columns:
+            codes = codes_df["ts_code"].dropna().astype(str).tolist()
+        else:
+            codes = codes_df.iloc[:, 0].dropna().astype(str).tolist()
+    else:
+        codes = [item.strip() for item in codes_arg.split(",") if item.strip()]
+
+    codes_df = pd.DataFrame({"ts_code": codes})
+    merged = codes_df.merge(
+        stock_list[["ts_code", "name", "industry"]], on="ts_code", how="left"
+    )
+    merged["name"] = merged["name"].fillna(merged["ts_code"])
+    merged["industry"] = merged["industry"].fillna("")
+    return merged
+

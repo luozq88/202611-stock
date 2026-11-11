@@ -2,11 +2,79 @@
 
 11月的想法：基于缠论“日线中枢突破 + 次级别回抽三买”的 A 股选股脚本，数据来自 Tushare。
 
-## 实现的逻辑
+仓库提供两个入口：
+
+- `run_funnel.py`：按最新讨论的分层漏斗实现，先截面粗筛再做逐股精筛，**推荐使用**；
+- `run_screener.py`：早期的单层扫描版本，只做缠论结构 + 月线过滤，保留用于对比。
+
+## 漏斗选股（run_funnel.py）
+
+### 实现的逻辑
+
+1. **截面粗筛（全市场）**：按交易日批量拉取 `daily` / `daily_basic` / `moneyflow`，一次性完成两件事：
+   - 大单资金：近 10 日大单+超大单净流入占比“温和、连续、无单日暴入”（0~5%、绝对峰值 <12%、均值转正）；
+   - 换手率：20 日中位数 2%~8%，且最近 5 日均值 >1%。
+2. **月线（战略层）**：`MA5 > MA10 > MA20`，收盘价在 `MA20` 上方，且月线 `MACD` 的 `DIF`、`DEA` 均在零轴上方；月线由日线前复权收盘合成，默认包含当月未完成K线。
+3. **周线（非暴涨）**：周收盘价不高于 10 周均线的 1.3 倍，避免追高。
+4. **量能（价横量升）**：25 日区间涨幅 <8% 视为横盘，同时 `OBV` 或 `A/D` 的归一化斜率 >0.05。
+5. **日线缠论结构**：中枢（`ZG`/`ZD`）+ 向上离开段 + 回抽不碰 `ZG` 的三买识别，沿用 `chan/` 下的实现。
+6. **分层输出**：
+   - `signal`：三买信号，可直接进入 30 分钟确认；
+   - `buy_watch`：已有日线中枢、资金条件通过，但尚未形成三买触发；
+   - `left_watch`：中枢尚未明确，只作为资金异动的优先跟踪池。
+
+### 数据源说明
+
+方案原文使用 `moneyflow_dc`（东财大单净占比）和 `cyq_perf`（筹码集中度），这两个接口分别需要 5000 / 10000 积分。实测当前 token 无权限，因此：
+
+- 资金层改用全市场可用的 `moneyflow`，用 `(buy_lg_amount - sell_lg_amount) / 成交额` 换算成同含义的大单净占比；
+- 筹码集中度层整体跳过，不影响漏斗主干。
+
+### 运行
+
+先小范围验证：
+
+```bash
+python run_funnel.py --sample 200 --seed 42
+```
+
+全市场扫描（建议适当加大 `--sleep` 规避 `adj_factor` 限频）：
+
+```bash
+python run_funnel.py --end 20261110 --sleep 0.3
+```
+
+只跑指定股票：
+
+```bash
+python run_funnel.py --codes 300082.SZ,600036.SH
+```
+
+常用参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--sample` / `--seed` | 随机抽样 N 只，便于快速验证 |
+| `--limit` | 只处理股票池前 N 只 |
+| `--start` | 日线起点，默认 20160101；月线 MACD 需要长历史，不建议晚于 2018 |
+| `--panel-days` | 截面回看交易日数，默认 30 |
+| `--no-fund-filter` / `--no-turnover-filter` / `--no-obv-filter` | 分别关闭资金、换手、量能过滤 |
+| `--mf-moderate` / `--mf-spike` / `--mf-continuity` | 资金“温和、无暴入、连续”的阈值 |
+| `--surge-ratio` | 周收盘/周MA10 上限，默认 1.3 |
+| `--no-macd-zero` | 月线不要求 MACD 零轴上方 |
+| `--obv-lookback` / `--obv-flat` / `--obv-slope` | 量能横盘窗口与斜率阈值 |
+| `--min-stage` | 三买信号的最低回抽阶段 |
+| `--confirm-30m` / `--confirm-top` | 对三买信号做 30 分钟确认（受 Tushare 限频影响） |
+
+结果写入 `output/funnel_YYYYMMDD_HHMMSS.csv/.md`，按 `signal → buy_watch → left_watch` 排序。
+
+## 单层扫描（run_screener.py，早期版本）
+
+### 实现的逻辑
 
 对应讨论中的方案：
 
-1. **月线趋势过滤（默认开启）**：最近一个月的月线 `MA5 > MA10 > MA20` 多头排列。月线由日线前复权收盘价按月合成，默认包含当月未完成K线；可用 `--no-monthly-filter` 关闭。
+1. **月线趋势过滤（默认开启）**：最近一个月的月线 `MA5 > MA10 > MA20` 多头排列，收盘在 `MA20` 上方，且月线 MACD 的 `DIF`、`DEA` 均在零轴上方。月线由日线前复权收盘价按月合成，默认包含当月未完成K线；可用 `--no-monthly-filter` 关闭。
 2. **日线中枢**：连续三笔重叠构成中枢，得到 `ZG`（上沿）、`ZD`（下沿）。
 3. **向上离开段**：一笔向上突破 `ZG`，并检查：
    - 突破幅度 >= `--breakout-pct`；
@@ -72,9 +140,9 @@ python run_screener.py --codes my_pool.csv
 | `--limit` | 只处理前 N 只，适合快速验证 |
 | `--sample` | 从全市场随机抽样 N 只，避免只扫到某个板块 |
 | `--seed` | 随机抽样种子，默认 42 |
-| `--lookback` | 回看自然日数，默认 900；月线 MA20 至少需要约 760 天 |
-| `--no-monthly-filter` | 关闭月线 `MA5 > MA10 > MA20` 多头排列过滤 |
-| `--monthly-ma-min-months` | 月线多头排列所需最少月数，默认 20 |
+| `--lookback` | 回看自然日数，默认 1200；月线 MA20 与 MACD 至少需要约 1100 天 |
+| `--no-monthly-filter` | 关闭月线多头与 MACD 零轴过滤 |
+| `--monthly-ma-min-months` | 月线多头排列所需最少月数，默认 24 |
 | `--monthly-exclude-current` | 月线MA不含当月未完成K线 |
 | `--breakout-pct` | 突破 ZG 的最小幅度，默认 0.01 |
 | `--min-strength` | 离开段/前一下跌段力度比，默认 0.5 |

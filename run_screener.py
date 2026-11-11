@@ -22,10 +22,9 @@ import pandas as pd
 
 from chan.config import ChanConfig
 from chan.confirm import confirm_minute_pullback
-from chan.data import TushareData
+from chan.data import TushareData, bars_from_frame, load_universe
 from chan.report import results_to_dataframe, write_csv, write_markdown
 from chan.screener import ScreenResult, analyze_stock
-from chan.structure import Bar
 
 logger = logging.getLogger("screener")
 
@@ -37,60 +36,8 @@ STAGE_ORDER = {
 }
 
 
-def _num(value) -> float:
-    try:
-        if pd.isna(value):
-            return 0.0
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _date_str(value) -> str:
     return str(value).replace("-", "")[:8]
-
-
-def df_to_bars(df: pd.DataFrame) -> List[Bar]:
-    bars: List[Bar] = []
-    for record in df.to_dict("records"):
-        bars.append(
-            Bar(
-                date=_date_str(record["trade_date"]),
-                open=float(record["open"]),
-                high=float(record["high"]),
-                low=float(record["low"]),
-                close=float(record["close"]),
-                volume=_num(record.get("vol")),
-                amount=_num(record.get("amount")),
-                idx=len(bars),
-            )
-        )
-    return bars
-
-
-def load_universe(data: TushareData, codes_arg: Optional[str]) -> pd.DataFrame:
-    stock_list = data.get_stock_list()
-
-    if not codes_arg:
-        return stock_list
-
-    path = Path(codes_arg)
-    if path.exists():
-        codes_df = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
-        if "ts_code" in codes_df.columns:
-            codes = codes_df["ts_code"].dropna().astype(str).tolist()
-        else:
-            codes = codes_df.iloc[:, 0].dropna().astype(str).tolist()
-    else:
-        codes = [item.strip() for item in codes_arg.split(",") if item.strip()]
-
-    codes_df = pd.DataFrame({"ts_code": codes})
-    merged = codes_df.merge(
-        stock_list[["ts_code", "name", "industry"]], on="ts_code", how="left"
-    )
-    merged["name"] = merged["name"].fillna(merged["ts_code"])
-    merged["industry"] = merged["industry"].fillna("")
-    return merged
 
 
 def check_market(data: TushareData, start_date: str, end_date: str) -> Optional[bool]:
@@ -113,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", default=os.getenv("TUSHARE_TOKEN"), help="Tushare token")
     parser.add_argument("--start", help="开始日期 YYYYMMDD")
     parser.add_argument("--end", help="结束日期 YYYYMMDD，默认最近交易日")
-    parser.add_argument("--lookback", type=int, default=900, help="回看自然日数（月线过滤建议 >= 760）")
+    parser.add_argument("--lookback", type=int, default=1200, help="回看自然日数（月线 MACD 建议 >= 1100）")
     parser.add_argument("--codes", help="股票代码文件（csv）或逗号分隔代码")
     parser.add_argument("--limit", type=int, default=0, help="只处理前 N 只，0 表示全部")
     parser.add_argument("--sample", type=int, default=0, help="从全市场随机抽样 N 只，0 表示不抽样")
@@ -212,10 +159,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     stale_before = (end_dt - timedelta(days=15)).strftime("%Y%m%d")
 
     if not args.no_monthly_filter:
-        monthly_min_start = (end_dt - timedelta(days=760)).strftime("%Y%m%d")
+        monthly_min_start = (end_dt - timedelta(days=1150)).strftime("%Y%m%d")
         if start_date > monthly_min_start:
             logger.info(
-                "为计算月线 MA20，回看起点自动扩展到 %s", monthly_min_start
+                "为计算月线 MA20 与月线 MACD，回看起点自动扩展到 %s", monthly_min_start
             )
             start_date = monthly_min_start
 
@@ -275,7 +222,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             df = data.get_daily(ts_code, start_date, end_date)
             if df is None or df.empty:
                 continue
-            bars = df_to_bars(df)
+            bars = bars_from_frame(df)
             if bars[-1].date < stale_before:
                 # 长期停牌或数据未更新
                 continue
