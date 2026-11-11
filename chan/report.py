@@ -156,6 +156,12 @@ def write_funnel_markdown(
     display["mf_mean_rate"] = display["mf_mean_rate"].map(
         lambda x: "-" if pd.isna(x) else f"{x:.2f}%"
     )
+    display["mf_recent_rate"] = display["mf_recent_rate"].map(
+        lambda x: "-" if pd.isna(x) else f"{x:.2f}%"
+    )
+    display["position_drawdown"] = display["position_drawdown"].map(
+        lambda x: "-" if pd.isna(x) else f"{x:.2%}"
+    )
     display["turnover_median"] = display["turnover_median"].map(
         lambda x: "-" if pd.isna(x) else f"{x:.2f}%"
     )
@@ -186,6 +192,8 @@ def write_funnel_markdown(
         ("obv_slope", "OBV斜率"),
         ("ad_slope", "AD斜率"),
         ("mf_mean_rate", "大单净占比"),
+        ("mf_recent_rate", "近3日净占比"),
+        ("position_drawdown", "距120日高"),
         ("turnover_median", "换手中位"),
         ("pivot_zg", "中枢ZG"),
         ("pullback_status", "回抽状态"),
@@ -211,14 +219,16 @@ def write_funnel_markdown(
             "## 分层说明",
             "",
             "- 三买信号：日线中枢向上突破、回抽不碰 ZG，可直接进入次级别确认。",
-            "- 右侧观察：已有日线中枢、资金条件通过，但尚未形成三买触发。",
-            "- 左侧观察：日线中枢尚未明确，只作为资金异动的优先跟踪池。",
+            "- 右侧观察：已有日线中枢且收盘价在 ZG 的 95% 以上，但尚未形成三买触发。",
+            "- 左侧观察：中枢未明确，或价格仍在中枢中下部/下方，仅作资金异动的跟踪池。",
             "",
             "## 过滤条件",
             "",
             "- 月线：MA5 > MA10 > MA20，收盘在 MA20 上方，MACD DIF/DEA 均在零轴上方。",
             "- 周线：收盘价不高于 10 周均线的 1.3 倍（非暴涨）。",
-            "- 资金：近 10 日大单净占比温和（0~5%）、无单日暴入（<12%）、均值转正。",
+            "- 资金：近 10 日大单净占比温和（0~15%）、无单日暴入（<30%）、加权均值转正，",
+            "  且近 3 日不能出现两次以上净流出超 5%、三日合计必须为正。",
+            "- 位置：现价距 120 日最高点回撤不超过 30%，剔除下跌中继。",
             "- 量能：25 日价格横盘（涨幅 <8%）且 OBV 或 A/D 归一化斜率 > 0.05。",
             "- 换手：20 日中位数在 2%~8%，且最近 5 日均值 > 1%。",
             "- 资金口径使用 `moneyflow`（大单+超大单）换算，替代无权限的 `moneyflow_dc`。",

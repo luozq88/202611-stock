@@ -72,9 +72,16 @@ def build_parser() -> argparse.ArgumentParser:
     # 资金 / 换手
     parser.add_argument("--no-fund-filter", action="store_true", help="关闭大单净流入过滤")
     parser.add_argument("--mf-days", type=int, default=10, help="资金流回看交易日数")
-    parser.add_argument("--mf-moderate", type=float, default=5.0, help="温和净流入上限（百分比）")
-    parser.add_argument("--mf-spike", type=float, default=12.0, help="单日净流入绝对值上限（百分比）")
+    parser.add_argument("--mf-moderate", type=float, default=15.0, help="温和净流入上限（百分比）")
+    parser.add_argument("--mf-spike", type=float, default=30.0, help="单日净流入绝对值上限（百分比）")
     parser.add_argument("--mf-continuity", type=float, default=0.6, help="温和区间天数占比")
+    parser.add_argument("--mf-veto-days", type=int, default=3, help="近期资金否决窗口")
+    parser.add_argument("--mf-veto-threshold", type=float, default=-5.0, help="否决窗口单日净流出阈值")
+    parser.add_argument("--mf-veto-hits", type=int, default=2, help="否决窗口异常次数上限")
+    parser.add_argument("--mf-decay", type=float, default=0.5, help="资金加权均值衰减系数")
+    parser.add_argument("--no-position-filter", action="store_true", help="关闭位置回撤过滤")
+    parser.add_argument("--position-dd", type=float, default=0.30, help="距区间高点最大回撤，0.3 表示三成")
+    parser.add_argument("--position-lookback", type=int, default=120, help="位置回撤回看天数")
     parser.add_argument("--no-turnover-filter", action="store_true", help="关闭换手率过滤")
     parser.add_argument("--turnover-min", type=float, default=2.0, help="换手中位数下限（百分比）")
     parser.add_argument("--turnover-max", type=float, default=8.0, help="换手中位数上限（百分比）")
@@ -146,6 +153,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         mf_moderate_max=args.mf_moderate,
         mf_spike_max=args.mf_spike,
         mf_continuity=args.mf_continuity,
+        mf_veto_days=args.mf_veto_days,
+        mf_veto_threshold=args.mf_veto_threshold,
+        mf_veto_hits=args.mf_veto_hits,
+        mf_decay=args.mf_decay,
+        require_position_filter=not args.no_position_filter,
+        position_max_drawdown=-abs(args.position_dd),
+        position_lookback=args.position_lookback,
         require_turnover_pass=not args.no_turnover_filter,
         turnover_min=args.turnover_min,
         turnover_max=args.turnover_max,

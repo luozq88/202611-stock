@@ -28,9 +28,18 @@ class ChanConfig:
     # 资金流（moneyflow 口径，替代无权限的 moneyflow_dc）
     require_fund_pass: bool = True
     mf_recent_days: int = 10
-    mf_moderate_max: float = 5.0    # 温和净流入上限，单位 %
-    mf_spike_max: float = 12.0      # 单日净流入绝对值上限，单位 %
+    mf_moderate_max: float = 15.0   # 温和净流入上限，单位 %（按全市场分布标定）
+    mf_spike_max: float = 30.0      # 单日净流入绝对值上限，单位 %
     mf_continuity: float = 0.6      # 处于温和区间的天数占比
+    mf_veto_days: int = 3           # 近期否决窗口
+    mf_veto_threshold: float = -5.0  # 窗口内单日净流出超过该值视为异常
+    mf_veto_hits: int = 2           # 异常次数达到该值即淘汰
+    mf_decay: float = 0.5           # 加权均值：最近一天权重增量，0 表示等权
+
+    # 位置：现价距区间高点的回撤，剔除下跌中继
+    require_position_filter: bool = True
+    position_lookback: int = 120
+    position_max_drawdown: float = -0.30  # 现价 / 区间最高 - 1 的下限
 
     # 换手率
     require_turnover_pass: bool = True
@@ -47,6 +56,7 @@ class ChanConfig:
 
     # 股票池
     min_list_months: int = 60
+    watch_zg_ratio: float = 0.95   # 右侧观察池：收盘价不低于 ZG 的该比例
 
     # 结构
     min_stroke_gap: int = 4          # 一笔至少间隔的合并K线数（新笔标准）

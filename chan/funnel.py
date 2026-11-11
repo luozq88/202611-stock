@@ -58,6 +58,7 @@ class FunnelRow:
 
     mf_pass: Optional[bool] = None
     mf_mean_rate: Optional[float] = None
+    mf_recent_rate: Optional[float] = None
     mf_continuity: Optional[float] = None
     mf_max_abs: Optional[float] = None
 
@@ -65,6 +66,7 @@ class FunnelRow:
     turnover_median: Optional[float] = None
     turnover_tail: Optional[float] = None
 
+    position_drawdown: Optional[float] = None
     has_zs: bool = False
     pivot_zg: Optional[float] = None
     pivot_zd: Optional[float] = None
@@ -151,6 +153,10 @@ def screen_funnel(
         moderate_max=cfg.mf_moderate_max,
         spike_max=cfg.mf_spike_max,
         continuity=cfg.mf_continuity,
+        veto_days=cfg.mf_veto_days,
+        veto_threshold=cfg.mf_veto_threshold,
+        veto_hits=cfg.mf_veto_hits,
+        decay=cfg.mf_decay,
     )
     turnover_stats = turnover_filter(
         basic_panel,
@@ -190,6 +196,7 @@ def screen_funnel(
         "no_data": 0,
         "stale": 0,
         "short_bars": 0,
+        "position_fail": 0,
         "weekly_fail": 0,
         "monthly_fail": 0,
         "obv_fail": 0,
@@ -217,6 +224,13 @@ def screen_funnel(
                     continue
             if len(bars) < cfg.min_bars:
                 stats["short_bars"] += 1
+                continue
+
+            window = bars[-cfg.position_lookback :]
+            high = max(b.high for b in window)
+            drawdown = bars[-1].close / high - 1.0 if high > 0 else -1.0
+            if cfg.require_position_filter and drawdown < cfg.position_max_drawdown:
+                stats["position_fail"] += 1
                 continue
 
             weekly = weekly_not_surged(
@@ -270,11 +284,13 @@ def screen_funnel(
                 ad_slope=volume.ad_slope,
                 mf_pass=_bool_or_none(record.get("mf_pass")),
                 mf_mean_rate=_float_or_none(record.get("mf_mean_rate")),
+                mf_recent_rate=_float_or_none(record.get("mf_recent_rate")),
                 mf_continuity=_float_or_none(record.get("mf_continuity")),
                 mf_max_abs=_float_or_none(record.get("mf_max_abs")),
                 turnover_pass=_bool_or_none(record.get("turnover_pass")),
                 turnover_median=_float_or_none(record.get("turnover_median")),
                 turnover_tail=_float_or_none(record.get("turnover_tail")),
+                position_drawdown=drawdown,
             )
 
             result = analyze_stock(
@@ -298,7 +314,11 @@ def screen_funnel(
                 if pivots:
                     row.pivot_zg = pivots[-1].zg
                     row.pivot_zd = pivots[-1].zd
-                row.pool = "buy_watch" if row.has_zs else "left_watch"
+                near_zg = (
+                    row.pivot_zg is not None
+                    and row.close >= row.pivot_zg * cfg.watch_zg_ratio
+                )
+                row.pool = "buy_watch" if near_zg else "left_watch"
                 rows.append(row)
                 stats["watch"] += 1
         except Exception as exc:  # noqa: BLE001
@@ -310,10 +330,11 @@ def screen_funnel(
             log("逐股精筛进度 %s/%s，入选 %s，错误 %s", order, total, len(rows), errors)
 
     log(
-        "过滤明细：无数据 %s，停牌/陈旧 %s，数据不足 %s，周线暴涨 %s，月线不符 %s，量能不达 %s",
+        "过滤明细：无数据 %s，停牌/陈旧 %s，数据不足 %s，位置过深 %s，周线暴涨 %s，月线不符 %s，量能不达 %s",
         stats["no_data"],
         stats["stale"],
         stats["short_bars"],
+        stats["position_fail"],
         stats["weekly_fail"],
         stats["monthly_fail"],
         stats["obv_fail"],

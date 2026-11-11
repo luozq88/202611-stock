@@ -70,18 +70,33 @@ def prepare_moneyflow(mf: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
 def moneyflow_filter(
     rates: pd.DataFrame,
     recent_days: int = 10,
-    moderate_max: float = 5.0,
-    spike_max: float = 12.0,
+    moderate_max: float = 15.0,
+    spike_max: float = 30.0,
     continuity: float = 0.6,
+    veto_days: int = 3,
+    veto_threshold: float = -5.0,
+    veto_hits: int = 2,
+    decay: float = 0.5,
 ) -> pd.DataFrame:
-    """截面过滤：大单净流入“温和、连续、无单日暴入”。
+    """截面过滤：大单资金“温和、连续、近期未转出”。
 
     通过条件：
-    1. 至少 60% 的交易日净流入占比落在 [0, moderate_max]；
+    1. 区间内至少 `continuity` 比例的交易日净流入占比落在 [0, moderate_max]；
     2. 任何一天净流入占比的绝对值都小于 spike_max；
-    3. 区间平均净流入为正。
+    3. 加权均值（越近权重越高）为正；
+    4. 最近 `veto_days` 天里跌破 `veto_threshold` 的天数少于 `veto_hits`，
+       且这段窗口的净额合计为正。
+
+    第 3、4 条是为了避免“前 7 天缓慢流入、后 3 天大幅出逃”被均值掩盖。
     """
-    columns = ["ts_code", "mf_pass", "mf_mean_rate", "mf_continuity", "mf_max_abs"]
+    columns = [
+        "ts_code",
+        "mf_pass",
+        "mf_mean_rate",
+        "mf_recent_rate",
+        "mf_continuity",
+        "mf_max_abs",
+    ]
     if rates is None or rates.empty:
         return pd.DataFrame(columns=columns)
 
@@ -98,20 +113,38 @@ def moneyflow_filter(
                     "ts_code": ts_code,
                     "mf_pass": False,
                     "mf_mean_rate": float(values.mean()) if len(values) else 0.0,
+                    "mf_recent_rate": float(values.tail(veto_days).mean()) if len(values) else 0.0,
                     "mf_continuity": 0.0,
                     "mf_max_abs": float(values.abs().max()) if len(values) else 0.0,
                 }
             )
             continue
+
+        n = len(values)
+        if decay > 0 and n > 1:
+            weights = 1.0 + decay * np.arange(n) / (n - 1)
+        else:
+            weights = np.ones(n)
+        mean_rate = float(np.average(values.to_numpy(dtype="float64"), weights=weights))
+
         moderate = ((values >= 0) & (values <= moderate_max)).mean()
         max_abs = float(values.abs().max())
-        mean_rate = float(values.mean())
-        passed = moderate >= continuity and max_abs < spike_max and mean_rate > 0
+        recent = values.tail(veto_days)
+        recent_bad = int((recent < veto_threshold).sum())
+        recent_sum = float(recent.sum())
+        passed = (
+            moderate >= continuity
+            and max_abs < spike_max
+            and mean_rate > 0
+            and recent_bad < veto_hits
+            and recent_sum > 0
+        )
         records.append(
             {
                 "ts_code": ts_code,
                 "mf_pass": bool(passed),
                 "mf_mean_rate": mean_rate,
+                "mf_recent_rate": float(recent.mean()),
                 "mf_continuity": float(moderate),
                 "mf_max_abs": max_abs,
             }
