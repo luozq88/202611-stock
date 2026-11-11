@@ -6,7 +6,7 @@ Tushare 的 `moneyflow_dc`（东财大单净占比）需要 5000 积分以上，
 
 单位换算：
 - `moneyflow.*_amount` 为万元；
-- `daily.amount` 为千元，乘以 10 得到万元。
+- `daily.amount` 为千元，乘以 0.1 得到万元（1 千元 = 0.1 万元）。
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def prepare_moneyflow(mf: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
     for col in num_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-    amount_wan = df["amount"] * 10.0
+    amount_wan = df["amount"] * 0.1
     lg_net = df["buy_lg_amount"] - df["sell_lg_amount"]
     elg_net = df["buy_elg_amount"] - df["sell_elg_amount"]
 
